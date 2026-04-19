@@ -1,0 +1,33 @@
+{
+  "name": "my-events-calendar",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "migrate": "npx tsx scripts/migrate.ts",
+    "test-email": "npx tsx --tsconfig tsconfig.json scripts/test-email-ingest.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0",
+    "@auth/core": "^0.37.4",
+    "@neondatabase/serverless": "^0.10.4",
+    "next": "^15.3.0",
+    "next-auth": "^5.0.0-beta.25",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "resend": "^4.5.1",
+    "svix": "^1.63.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@types/ws": "^8.5.14",
+    "dotenv": "^16.5.0",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.3",
+    "ws": "^8.18.1"
+  }
+}
