@@ -4,9 +4,9 @@ import { generateIcal, type EventRow } from '@/lib/ical'
 
 export async function GET(
   _req: NextRequest,
-  context: { params: Promise<{ slug: string }> }
+  { params }: { params: Promise<any> }
 ) {
-  const { slug } = await context.params
+  const { slug } = await params as { slug: string }
 
   const tagRows = await sql`SELECT id, name FROM tags WHERE slug = ${slug}`
   if (!tagRows[0]) {
