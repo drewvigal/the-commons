@@ -1,11 +1,12 @@
+import { type NextRequest } from 'next/server'
 import { sql } from '@/lib/db'
 import { generateIcal, type EventRow } from '@/lib/ical'
 
 export async function GET(
-  _req: Request,
-  { params }: { params: Promise<{ slug: string }> }
+  _req: NextRequest,
+  { params }: { params: Promise<any> }
 ) {
-  const { slug } = await params
+  const { slug } = await params as { slug: string }
 
   const tagRows = await sql`SELECT id, name FROM tags WHERE slug = ${slug}`
   if (!tagRows[0]) {
