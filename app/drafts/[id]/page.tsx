@@ -5,6 +5,8 @@ import { redirect, notFound } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
 import DraftActions from '../DraftActions'
 import VenueAutocomplete from './VenueAutocomplete'
+import InlineTagAdder from './InlineTagAdder'
+import UnsplashPicker from './UnsplashPicker'
 
 const UUID_RE = /^[0-9a-f-]{36}$/i
 
@@ -38,12 +40,17 @@ export default async function DraftDetailPage({
   const isAdminPlus = hasRole(session.user.role, 'admin')
   if (!isOwner && !isAdminPlus) redirect('/drafts')
 
-  const [tagsRows, currentTagRows, seriesRows] = await Promise.all([
-    sql`SELECT id, name, slug FROM tags ORDER BY name ASC`,
+  const [tagsRows, currentTagRows, seriesRows, currentSeriesRows] = await Promise.all([
+    sql`SELECT id, name, slug, category FROM tags ORDER BY name ASC`,
     sql`SELECT tag_id FROM event_tags WHERE event_id = ${id}::uuid`,
     sql`SELECT id, title FROM series ORDER BY title ASC`,
+    sql`SELECT series_id FROM event_series WHERE event_id = ${id}::uuid`,
   ])
-  const currentTagIds = new Set(currentTagRows.map(r => r.tag_id as string))
+  const currentTagIds    = new Set(currentTagRows.map(r => r.tag_id as string))
+  const currentSeriesIds = new Set(currentSeriesRows.map(r => r.series_id as string))
+  const defaultTags      = tagsRows.filter(t => t.category === 'default')
+  const customTags       = tagsRows.filter(t => t.category === 'custom')
+  const neighborhoodTags = tagsRows.filter(t => t.category === 'neighborhood')
 
   async function saveEvent(formData: FormData) {
     'use server'
@@ -51,7 +58,8 @@ export default async function DraftDetailPage({
     if (!session?.user || !hasRole(session.user.role, 'curator')) redirect('/api/auth/signin')
 
     const get = (key: string) => (formData.get(key) as string | null)?.trim() || null
-    const selectedTagIds = formData.getAll('tags') as string[]
+    const selectedTagIds    = formData.getAll('tags') as string[]
+    const selectedSeriesIds = formData.getAll('series') as string[]
 
     // Convert a naive "YYYY-MM-DDTHH:mm" datetime-local string to a UTC ISO string
     // by determining the offset for the given IANA timezone at that point in time.
@@ -73,12 +81,16 @@ export default async function DraftDetailPage({
     const tz = get('timezone') ?? (event.timezone as string)
     const startsAtUtc = get('starts_at') ? localToUtcIso(get('starts_at')!, tz) : null
     const endsAtUtc   = get('ends_at')   ? localToUtcIso(get('ends_at')!, tz)   : null
-    const seriesId    = get('series_id') || null
 
-    // Replace all tags for this event atomically
+    // Replace all tags and series for this event atomically
     await sql`DELETE FROM event_tags WHERE event_id = ${id}::uuid`
     for (const tagId of selectedTagIds) {
       await sql`INSERT INTO event_tags (event_id, tag_id) VALUES (${id}::uuid, ${tagId}::uuid) ON CONFLICT DO NOTHING`
+    }
+
+    await sql`DELETE FROM event_series WHERE event_id = ${id}::uuid`
+    for (const seriesId of selectedSeriesIds) {
+      await sql`INSERT INTO event_series (event_id, series_id) VALUES (${id}::uuid, ${seriesId}::uuid) ON CONFLICT DO NOTHING`
     }
 
     await sql`
@@ -99,7 +111,6 @@ export default async function DraftDetailPage({
         cost          = ${get('cost')},
         venue_name    = ${get('venue_name')},
         maps_url      = ${get('maps_url')},
-        series_id     = ${seriesId}::uuid,
         updated_at    = now()
       WHERE id = ${id}::uuid
     `
@@ -107,7 +118,11 @@ export default async function DraftDetailPage({
     revalidatePath('/drafts')
     revalidatePath(`/events/${id}`)
     revalidatePath('/events')
-    redirect(`/drafts/${id}?saved=1`)
+    if (event.status === 'published') {
+      redirect(`/events/${id}`)
+    } else {
+      redirect(`/drafts/${id}?saved=1`)
+    }
   }
 
   // Format a UTC timestamp as YYYY-MM-DDTHH:mm in the event's local timezone
@@ -150,6 +165,45 @@ export default async function DraftDetailPage({
           style={{ padding: '0.5rem', border: '1px solid var(--color-border)', borderRadius: '4px', fontFamily: 'inherit', fontSize: '1rem' }}
           defaultValue={(event.description as string) ?? ''} />
 
+        {/* ── Location cluster ─────────────────────────────── */}
+        <fieldset className="field-cluster">
+          <legend>Location</legend>
+
+          <label htmlFor="location_type">Location type *</label>
+          <select id="location_type" name="location_type"
+            style={{ padding: '0.5rem', border: '1px solid var(--color-border)', borderRadius: '4px', fontSize: '1rem' }}
+            defaultValue={(event.location_type as string) ?? 'in_person'}>
+            <option value="in_person">In person</option>
+            <option value="virtual">Virtual</option>
+            <option value="hybrid">Hybrid</option>
+          </select>
+
+          <VenueAutocomplete
+            defaultVenue={  (event.venue_name as string) ?? ''}
+            defaultAddress={(event.address   as string) ?? ''}
+            defaultCity={   (event.city      as string) ?? ''}
+            defaultState={  (event.state     as string) ?? ''}
+            defaultMapsUrl={(event.maps_url  as string) ?? ''}
+          />
+
+          <label htmlFor="virtual_url">Virtual / stream URL</label>
+          <input type="url" id="virtual_url" name="virtual_url" defaultValue={(event.virtual_url as string) ?? ''} />
+
+          <fieldset className="tag-box">
+            <legend>Neighborhoods</legend>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginTop: '0.25rem' }}>
+              {neighborhoodTags.map(tag => (
+                <label key={tag.id as string} style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', fontWeight: 'normal', fontSize: '0.875rem', cursor: 'pointer' }}>
+                  <input type="checkbox" name="tags" value={tag.id as string} defaultChecked={currentTagIds.has(tag.id as string)} />
+                  {tag.name as string}
+                </label>
+              ))}
+            </div>
+            <InlineTagAdder category="neighborhood" />
+          </fieldset>
+        </fieldset>
+
+        {/* ── Date & time ──────────────────────────────────── */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
             <label htmlFor="starts_at">Start date &amp; time *</label>
@@ -167,26 +221,6 @@ export default async function DraftDetailPage({
         <input type="text" id="timezone" name="timezone" placeholder="America/Los_Angeles"
           defaultValue={(event.timezone as string) ?? ''} />
 
-        <label htmlFor="location_type">Location type *</label>
-        <select id="location_type" name="location_type"
-          style={{ padding: '0.5rem', border: '1px solid var(--color-border)', borderRadius: '4px', fontSize: '1rem' }}
-          defaultValue={(event.location_type as string) ?? 'in_person'}>
-          <option value="in_person">In person</option>
-          <option value="virtual">Virtual</option>
-          <option value="hybrid">Hybrid</option>
-        </select>
-
-        <VenueAutocomplete
-          defaultVenue={  (event.venue_name as string) ?? ''}
-          defaultAddress={(event.address   as string) ?? ''}
-          defaultCity={   (event.city      as string) ?? ''}
-          defaultState={  (event.state     as string) ?? ''}
-          defaultMapsUrl={(event.maps_url  as string) ?? ''}
-        />
-
-        <label htmlFor="virtual_url">Virtual / stream URL</label>
-        <input type="url" id="virtual_url" name="virtual_url" defaultValue={(event.virtual_url as string) ?? ''} />
-
         <label htmlFor="cost">Cost</label>
         <input type="text" id="cost" name="cost" placeholder='e.g. Free, $15, $10–$25 sliding scale' defaultValue={(event.cost as string) ?? ''} />
 
@@ -194,45 +228,54 @@ export default async function DraftDetailPage({
         <input type="url" id="event_url" name="event_url" defaultValue={(event.event_url as string) ?? ''} />
 
         <label htmlFor="image_url">Thumbnail image URL</label>
-        <input type="url" id="image_url" name="image_url" defaultValue={(event.image_url as string) ?? ''} />
-        {event.image_url && (
-          <img
-            src={event.image_url as string}
-            alt="Event thumbnail"
-            style={{ display: 'block', marginTop: '0.5rem', maxWidth: '320px', maxHeight: '180px', objectFit: 'cover', borderRadius: '4px', border: '1px solid var(--color-border)' }}
-          />
-        )}
+        <UnsplashPicker defaultValue={(event.image_url as string) ?? ''} />
 
-        <label htmlFor="series_id">Series</label>
-        <select id="series_id" name="series_id"
-          style={{ padding: '0.5rem', border: '1px solid var(--color-border)', borderRadius: '4px', fontSize: '1rem' }}
-          defaultValue={(event.series_id as string) ?? ''}>
-          <option value="">— None —</option>
-          {seriesRows.map(s => (
-            <option key={s.id as string} value={s.id as string}>{s.title as string}</option>
-          ))}
-        </select>
-        {seriesRows.length === 0 && (
-          <p className="muted" style={{ marginTop: '-0.75rem', fontSize: '0.8rem' }}>
-            No series yet. <a href="/series/new">Create one</a>.
-          </p>
-        )}
+        {/* ── Relating Events cluster ──────────────────────── */}
+        <fieldset className="field-cluster">
+          <legend>Relating Events</legend>
 
-        <fieldset style={{ border: '1px solid var(--color-border)', borderRadius: '4px', padding: '0.75rem 1rem' }}>
-          <legend style={{ fontWeight: 600, fontSize: '0.9rem', padding: '0 0.25rem' }}>Tags</legend>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginTop: '0.25rem' }}>
-            {tagsRows.map(tag => (
-              <label key={tag.id as string} style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', fontWeight: 'normal', fontSize: '0.875rem', cursor: 'pointer' }}>
-                <input
-                  type="checkbox"
-                  name="tags"
-                  value={tag.id as string}
-                  defaultChecked={currentTagIds.has(tag.id as string)}
-                />
-                {tag.name as string}
-              </label>
-            ))}
-          </div>
+          <fieldset className="tag-box">
+            <legend>Series</legend>
+            {seriesRows.length === 0 ? (
+              <p className="muted" style={{ margin: '0.25rem 0 0', fontSize: '0.8rem' }}>
+                No series yet. <a href="/series/new">Create one</a>.
+              </p>
+            ) : (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginTop: '0.25rem' }}>
+                {seriesRows.map(s => (
+                  <label key={s.id as string} style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', fontWeight: 'normal', fontSize: '0.875rem', cursor: 'pointer' }}>
+                    <input type="checkbox" name="series" value={s.id as string} defaultChecked={currentSeriesIds.has(s.id as string)} />
+                    {s.title as string}
+                  </label>
+                ))}
+              </div>
+            )}
+          </fieldset>
+
+          <fieldset className="tag-box">
+            <legend>Default Tags</legend>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginTop: '0.25rem' }}>
+              {defaultTags.map(tag => (
+                <label key={tag.id as string} style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', fontWeight: 'normal', fontSize: '0.875rem', cursor: 'pointer' }}>
+                  <input type="checkbox" name="tags" value={tag.id as string} defaultChecked={currentTagIds.has(tag.id as string)} />
+                  {tag.name as string}
+                </label>
+              ))}
+            </div>
+          </fieldset>
+
+          <fieldset className="tag-box">
+            <legend>Custom Tags</legend>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginTop: '0.25rem' }}>
+              {customTags.map(tag => (
+                <label key={tag.id as string} style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', fontWeight: 'normal', fontSize: '0.875rem', cursor: 'pointer' }}>
+                  <input type="checkbox" name="tags" value={tag.id as string} defaultChecked={currentTagIds.has(tag.id as string)} />
+                  {tag.name as string}
+                </label>
+              ))}
+            </div>
+            <InlineTagAdder category="custom" />
+          </fieldset>
         </fieldset>
 
         <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', paddingTop: '0.5rem' }}>

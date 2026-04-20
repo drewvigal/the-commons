@@ -5,7 +5,8 @@ export default async function SeriesPage() {
     SELECT s.id, s.title, s.slug, s.description,
            COUNT(e.id) AS event_count
     FROM series s
-    LEFT JOIN events e ON e.series_id = s.id AND e.status = 'published'
+    LEFT JOIN event_series es ON es.series_id = s.id
+    LEFT JOIN events e ON e.id = es.event_id AND e.status = 'published'
     GROUP BY s.id
     ORDER BY s.title ASC
   `

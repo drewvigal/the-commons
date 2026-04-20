@@ -15,24 +15,33 @@ export default async function EmbedEventsPage({
     SELECT
       e.id, e.title, e.summary, e.starts_at, e.timezone,
       e.city, e.state, e.location_type, e.event_url, e.image_url, e.cost,
-      s.title AS series_title, s.slug AS series_slug,
       COALESCE(
-        json_agg(json_build_object('name', t.name, 'slug', t.slug))
+        jsonb_agg(DISTINCT jsonb_build_object('title', s.title, 'slug', s.slug))
+        FILTER (WHERE s.id IS NOT NULL),
+        '[]'::jsonb
+      ) AS series,
+      COALESCE(
+        jsonb_agg(DISTINCT jsonb_build_object('name', t.name, 'slug', t.slug))
         FILTER (WHERE t.id IS NOT NULL),
-        '[]'::json
+        '[]'::jsonb
       ) AS tags
     FROM events e
     LEFT JOIN event_tags et ON et.event_id = e.id
     LEFT JOIN tags t ON t.id = et.tag_id
-    LEFT JOIN series s ON s.id = e.series_id
+    LEFT JOIN event_series es ON es.event_id = e.id
+    LEFT JOIN series s ON s.id = es.series_id
     WHERE e.status = 'published'
       AND (${tagSlug}::text IS NULL OR e.id IN (
         SELECT et2.event_id FROM event_tags et2
         JOIN tags t2 ON t2.id = et2.tag_id
         WHERE t2.slug = ${tagSlug}
       ))
-      AND (${seriesSlug}::text IS NULL OR s.slug = ${seriesSlug})
-    GROUP BY e.id, s.title, s.slug
+      AND (${seriesSlug}::text IS NULL OR e.id IN (
+        SELECT es2.event_id FROM event_series es2
+        JOIN series s2 ON s2.id = es2.series_id
+        WHERE s2.slug = ${seriesSlug}
+      ))
+    GROUP BY e.id
     ORDER BY e.starts_at ASC
   `
 
@@ -95,11 +104,11 @@ export default async function EmbedEventsPage({
                     {event.cost && ` · ${event.cost as string}`}
                   </p>
                   <div>
-                    {event.series_title && (
-                      <a href={`${appUrl}/events?series=${event.series_slug as string}`} target="_blank" rel="noopener" className="tag tag--series">
-                        {event.series_title as string}
+                    {(event.series as Array<{ title: string; slug: string }>).map(s => (
+                      <a key={s.slug} href={`${appUrl}/events?series=${s.slug}`} target="_blank" rel="noopener" className="tag tag--series">
+                        {s.title}
                       </a>
-                    )}
+                    ))}
                     {tags.map(tag => (
                       <a key={tag.slug} href={`${appUrl}/events?tag=${tag.slug}`} target="_blank" rel="noopener" className="tag">
                         {tag.name}

@@ -6,7 +6,24 @@
       "Skill(update-config)",
       "Skill(update-config:*)",
       "Bash(ls -la .git)",
-      "Bash(cat .gitignore)"
+      "Bash(cat .gitignore)",
+      "Bash(gh pr create --title 'Fix route handler param types for Vercel build' --body ' *)",
+      "Bash(brew install *)",
+      "Bash(gh pr *)",
+      "Bash(npx vercel *)",
+      "Bash(npm run *)",
+      "Bash(npm install *)",
+      "Bash(wait)",
+      "Bash(pdftoppm -r 150 \"/Users/adevigal/Documents/1. Agora/2026/Claude Code Vibe Coding/My Events Calendar - working/design.pdf\" /tmp/design-page)",
+      "Read(//usr/local/bin/**)",
+      "Read(//opt/homebrew/bin/**)",
+      "Bash(/opt/homebrew/bin/pdftoppm -r 150 \"/Users/adevigal/Documents/1. Agora/2026/Claude Code Vibe Coding/My Events Calendar - working/design.pdf\" /tmp/design-page)",
+      "Read(//private/tmp/**)",
+      "Read(//opt/homebrew/**)",
+      "Read(//usr/local/**)",
+      "Bash(/opt/homebrew/bin/ppmtopgm /tmp/design-page-1.ppm)",
+      "Bash(/opt/homebrew/bin/pnmtopng)",
+      "Bash(sips -s format png /tmp/design-page-1.ppm --out /tmp/design-page-1.png)"
     ]
   }
 }
